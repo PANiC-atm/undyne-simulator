@@ -1,219 +1,304 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Undyne Clone</title>
-  <style>
-    body {
-      margin: 0;
-      background: black;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      overflow: hidden;
-    }
-    canvas {
-      border: 5px solid white;
-      display: block;
-      background: black;
-    }
-    #overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0,0,0,0.8);
-      color: white;
-      font-size: 2em;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      z-index: 10;
-    }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Undyne-style Shield Game</title>
+<style>
+  :root{--bg:#000;--fg:#fff}
+  html,body{height:100%;margin:0;background:#111;color:var(--fg);font-family:system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial}
+  .wrap{display:flex;align-items:center;justify-content:center;height:100vh}
+  /* Game area */
+  #game{background:#000;border:6px solid #fff;display:block}
+  .ui{position:absolute;left:20px;top:20px;color:#fff;font-weight:700}
+  .center-ui{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center}
+  #overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:auto}
+  button{background:#fff;color:#000;border:none;padding:12px 18px;border-radius:8px;font-weight:700;cursor:pointer}
+  #gameover{font-size:64px;letter-spacing:4px}
+  #hud{position:absolute;right:20px;top:20px;color:#fff;font-weight:700;text-align:right}
+</style>
 </head>
 <body>
-  <div id="overlay">Click to Start</div>
-  <canvas id="gameCanvas" width="600" height="600"></canvas>
-  <script>
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    const overlay = document.getElementById('overlay');
+<div class="wrap">
+  <div style="position:relative;">
+    <canvas id="game" width="800" height="600"></canvas>
 
-    const assets = {
-      soul: 'assets/SOUL.png',
-      shield: 'assets/shield.png',
-      arrow: 'assets/arrow.png',
-      music: 'assets/music.mp3'
-    };
+    <div class="ui" id="scoreUI">Score: 0<br>High: 0</div>
+    <div class="hud" id="hud"></div>
 
-    let soul = { x: canvas.width/2, y: canvas.height/2, size: 32 };
-    let shieldPos = 'up'; // up, down, left, right
-    let arrows = [];
-    let arrowSpeed = 200;
-    let score = 0;
-    let highScore = parseInt(localStorage.getItem('highScore')) || 0;
-    let wave = 1;
-    let arrowsThisWave = 0;
-    let gameOver = false;
-    let lastTime = 0;
-    let spawnCooldown = 1.5; // seconds between arrows
-    let spawnTimer = 0;
+    <div id="overlay">
+      <div class="center-ui">
+        <h1 style="margin:0 0 12px 0;color:#fff">Undyne-style Shield Demo</h1>
+        <button id="startBtn">Click to Start</button>
+        <div style="margin-top:10px;color:#ddd;font-size:13px">Use arrow keys to rotate the shield around the SOUL</div>
+      </div>
+    </div>
+  </div>
+</div>
 
-    const soulImg = new Image();
-    soulImg.src = assets.soul;
-    const shieldImg = new Image();
-    shieldImg.src = assets.shield;
-    const arrowImg = new Image();
-    arrowImg.src = assets.arrow;
+<script>
+// Asset paths (as you requested)
+const ASSETS = {
+  soul: 'assets/SOUL.png',      // SOUL graphic
+  shield: 'assets/shield.png',  // shield graphic (vertical)
+  arrow: 'assets/arrow.png',    // arrow graphic, facing up
+  music: 'assets/music.mp3'     // music audio
+};
 
-    const music = new Audio(assets.music);
-    music.loop = true;
+// Canvas & context
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
 
-    function resetGame(){
-      arrows = [];
-      arrowSpeed = 200;
-      score = 0;
-      wave = 1;
-      arrowsThisWave = 0;
-      gameOver = false;
+// UI
+const overlay = document.getElementById('overlay');
+const startBtn = document.getElementById('startBtn');
+const scoreUI = document.getElementById('scoreUI');
+
+// Images
+const imgSoul = new Image(); imgSoul.src = ASSETS.soul;
+const imgShield = new Image(); imgShield.src = ASSETS.shield;
+const imgArrow = new Image(); imgArrow.src = ASSETS.arrow;
+
+// Audio
+const music = new Audio(ASSETS.music);
+music.loop = true; // loop
+
+// Game state
+let running = false;
+let arrows = []; // active arrows
+let lastTime = 0;
+let waveTimer = 0;
+let waveInterval = 2000; // ms between waves
+let waveCount = 0;
+let baseSpeed = 200; // px/s
+let speedIncrement = 25; // per wave
+let score = 0;
+let highScore = parseInt(localStorage.getItem('ud_high')||'0',10) || 0;
+scoreUI.innerHTML = `Score: ${score}<br>High: ${highScore}`;
+
+// Player (SOUL) in center
+const player = { x: W/2, y: H/2, r: 18, alive: true };
+
+// Shield properties (a vertical rectangle rotated around center)
+let shield = {
+  radius: 60,         // distance from center to shield center
+  width: 12,          // shield thickness
+  height: 90,         // shield length (vertical orientation before rotation)
+  angle: 0,           // radians
+  rotateSpeed: Math.PI, // radians per second when arrow pressed
+};
+
+// Controls
+const keys = { ArrowLeft:false, ArrowRight:false, ArrowUp:false, ArrowDown:false };
+window.addEventListener('keydown', e=>{ if(e.key in keys){ keys[e.key]=true; e.preventDefault(); }});
+window.addEventListener('keyup', e=>{ if(e.key in keys){ keys[e.key]=false; e.preventDefault(); }});
+
+// Utility
+function randInt(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
+
+// Arrow spawn: from one of four edges (left,right,top,bottom)
+function spawnArrow(direction){
+  // direction: 'left','right','top','bottom' - spawn just outside the screen and move toward center
+  let ax, ay, vx, vy;
+  const speed = baseSpeed + waveCount * speedIncrement; // px/s
+  if(direction==='left'){
+    ax = -20; ay = randInt(50,H-50); vx = speed; vy = 0;
+  } else if(direction==='right'){
+    ax = W+20; ay = randInt(50,H-50); vx = -speed; vy = 0;
+  } else if(direction==='top'){
+    ax = randInt(50,W-50); ay = -20; vx = 0; vy = speed;
+  } else { // bottom
+    ax = randInt(50,W-50); ay = H+20; vx = 0; vy = -speed;
+  }
+  arrows.push({x:ax,y:ay,vx,vy,dir:direction});
+}
+
+function spawnWave(){
+  waveCount++;
+  // spawn a random number of arrows 3..7 from random edges
+  const n = randInt(3,7);
+  for(let i=0;i<n;i++){
+    const dirs = ['left','right','top','bottom'];
+    const d = dirs[Math.floor(Math.random()*dirs.length)];
+    // small timeout between arrows in a wave
+    setTimeout(()=>spawnArrow(d), i*120);
+  }
+}
+
+// Rotate shield according to keys
+function updateShield(dt){
+  // left -> rotate CCW, right -> CW, up -> faster CW, down -> faster CCW
+  let turn = 0;
+  if(keys.ArrowLeft) turn -= 1;
+  if(keys.ArrowRight) turn += 1;
+  if(keys.ArrowUp) turn += 0.6;
+  if(keys.ArrowDown) turn -= 0.6;
+  shield.angle += turn * shield.rotateSpeed * dt;
+}
+
+// Collision: check if point (px,py) intersects the rotated rectangle shield
+function pointIntersectsShield(px,py){
+  // transform point into shield local coordinates
+  const sx = player.x + Math.cos(shield.angle) * shield.radius;
+  const sy = player.y + Math.sin(shield.angle) * shield.radius;
+  // rectangle center at (sx,sy) rotated by shield.angle; rectangle dims: width x height (width is thickness)
+  // move point relative to rect center
+  const rx = px - sx;
+  const ry = py - sy;
+  // rotate by -angle
+  const ca = Math.cos(-shield.angle);
+  const sa = Math.sin(-shield.angle);
+  const lx = rx * ca - ry * sa;
+  const ly = rx * sa + ry * ca;
+  // rectangle extents
+  const hw = shield.width/2 + 4; // small padding
+  const hh = shield.height/2 + 4;
+  return (lx >= -hw && lx <= hw && ly >= -hh && ly <= hh);
+}
+
+function update(dt){
+  if(!running) return;
+  // shield
+  updateShield(dt);
+
+  // arrows move
+  for(let i=arrows.length-1;i>=0;i--){
+    const a = arrows[i];
+    a.x += a.vx * dt;
+    a.y += a.vy * dt;
+
+    // check collision with shield
+    if(pointIntersectsShield(a.x,a.y)){
+      // blocked
+      arrows.splice(i,1);
+      score += 1;
+      if(score>highScore){ highScore = score; localStorage.setItem('ud_high', highScore); }
+      scoreUI.innerHTML = `Score: ${score}<br>High: ${highScore}`;
+      continue;
     }
 
-    function spawnArrow(){
-      if(arrowsThisWave >= 10) return; // max 10 arrows per wave
-      const sides = ['up','down','left','right'];
-      const side = sides[Math.floor(Math.random()*4)];
-      let arrow = {x:0,y:0,dx:0,dy:0,size:32};
-
-      if(side==='up'){
-        arrow.x = canvas.width/2;
-        arrow.y = 0;
-        arrow.dy = 1;
-      } else if(side==='down'){
-        arrow.x = canvas.width/2;
-        arrow.y = canvas.height;
-        arrow.dy = -1;
-      } else if(side==='left'){
-        arrow.x = 0;
-        arrow.y = canvas.height/2;
-        arrow.dx = 1;
-      } else if(side==='right'){
-        arrow.x = canvas.width;
-        arrow.y = canvas.height/2;
-        arrow.dx = -1;
-      }
-
-      arrows.push(arrow);
-      arrowsThisWave++;
-
-      if(arrowsThisWave === 10){
-        // prepare next wave
-        setTimeout(()=>{
-          wave++;
-          arrowsThisWave = 0;
-          arrowSpeed += 25;
-        }, 2000);
-      }
+    // check collision with player
+    const dx = a.x - player.x;
+    const dy = a.y - player.y;
+    const dist2 = dx*dx + dy*dy;
+    if(dist2 <= (player.r * player.r)){
+      // hit player -> game over
+      player.alive = false;
+      running = false;
+      gameOver();
+      return;
     }
 
-    function update(dt){
-      if(gameOver) return;
+    // remove arrows far off-screen
+    if(a.x < -60 || a.x > W+60 || a.y < -60 || a.y > H+60){ arrows.splice(i,1); }
+  }
 
-      spawnTimer += dt;
-      if(spawnTimer >= spawnCooldown && arrowsThisWave < 10){
-        spawnArrow();
-        spawnTimer = 0;
-      }
+  // waves
+  waveTimer += dt*1000;
+  if(waveTimer >= waveInterval){ waveTimer = 0; spawnWave(); }
+}
 
-      for(let i=arrows.length-1;i>=0;i--){
-        let a = arrows[i];
-        a.x += a.dx * arrowSpeed * dt;
-        a.y += a.dy * arrowSpeed * dt;
+function draw(){
+  // background
+  ctx.clearRect(0,0,W,H);
 
-        // Check collision with soul
-        if(Math.abs(a.x - soul.x) < soul.size/2 && Math.abs(a.y - soul.y) < soul.size/2){
-          if(
-            (shieldPos==='up' && a.dy>0 && a.x===canvas.width/2) ||
-            (shieldPos==='down' && a.dy<0 && a.x===canvas.width/2) ||
-            (shieldPos==='left' && a.dx>0 && a.y===canvas.height/2) ||
-            (shieldPos==='right' && a.dx<0 && a.y===canvas.height/2)
-          ){
-            // blocked
-            arrows.splice(i,1);
-            score++;
-            if(score>highScore){
-              highScore=score;
-              localStorage.setItem('highScore',highScore);
-            }
-          } else {
-            // game over
-            gameOver = true;
-            setTimeout(()=>{resetGame();},3000);
-          }
-        }
-      }
+  // draw SOUL (center)
+  if(player.alive){
+    if(imgSoul.complete && imgSoul.naturalWidth){
+      const s = 48;
+      ctx.drawImage(imgSoul, player.x - s/2, player.y - s/2, s, s);
+    } else {
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(player.x,player.y,player.r,0,Math.PI*2); ctx.fill();
     }
+  }
 
-    function draw(){
-      ctx.clearRect(0,0,canvas.width,canvas.height);
+  // draw shield (rectangle rotated)
+  // compute shield center
+  const sx = player.x + Math.cos(shield.angle) * shield.radius;
+  const sy = player.y + Math.sin(shield.angle) * shield.radius;
 
-      if(!gameOver){
-        ctx.drawImage(soulImg, soul.x - soul.size/2, soul.y - soul.size/2, soul.size, soul.size);
-        let shieldX = soul.x;
-        let shieldY = soul.y;
-        const offset = 40;
-        if(shieldPos==='up') shieldY -= offset;
-        if(shieldPos==='down') shieldY += offset;
-        if(shieldPos==='left') shieldX -= offset;
-        if(shieldPos==='right') shieldX += offset;
-        ctx.drawImage(shieldImg, shieldX-16, shieldY-16, 32, 32);
+  ctx.save();
+  ctx.translate(sx,sy);
+  ctx.rotate(shield.angle);
+  if(imgShield.complete && imgShield.naturalWidth){
+    ctx.drawImage(imgShield, -shield.width/2, -shield.height/2, shield.width, shield.height);
+  } else {
+    ctx.fillStyle = '#00f9ff'; ctx.fillRect(-shield.width/2, -shield.height/2, shield.width, shield.height);
+  }
+  ctx.restore();
 
-        for(let a of arrows){
-          ctx.drawImage(arrowImg, a.x-16, a.y-16, a.size, a.size);
-        }
-      } else {
-        ctx.fillStyle='white';
-        ctx.font='48px sans-serif';
-        ctx.textAlign='center';
-        ctx.fillText('GAME OVER', canvas.width/2, canvas.height/2);
-      }
-
-      // UI
-      ctx.fillStyle='white';
-      ctx.font='16px sans-serif';
-      ctx.textAlign='left';
-      ctx.fillText('Score: '+score,10,20);
-      ctx.fillText('High Score: '+highScore,10,40);
-      ctx.textAlign='right';
-      ctx.fillText('Wave: '+wave, canvas.width-10, 20);
+  // draw arrows
+  for(const a of arrows){
+    ctx.save();
+    ctx.translate(a.x,a.y);
+    // compute rotation so arrow sprite (which faces up) points along velocity
+    const angle = Math.atan2(a.vy, a.vx) + Math.PI/2; // because sprite faces up
+    ctx.rotate(angle);
+    if(imgArrow.complete && imgArrow.naturalWidth){
+      const s = 28;
+      ctx.drawImage(imgArrow, -s/2, -s/2, s, s);
+    } else {
+      // fallback triangle
+      ctx.fillStyle = '#ff0044'; ctx.beginPath(); ctx.moveTo(0,-12); ctx.lineTo(8,8); ctx.lineTo(-8,8); ctx.closePath(); ctx.fill();
     }
+    ctx.restore();
+  }
 
-    function gameLoop(timestamp){
-      if(!lastTime) lastTime = timestamp;
-      const dt = (timestamp - lastTime)/1000;
-      lastTime = timestamp;
+  // HUD (if wanted we have Score in DOM already)
+}
 
-      update(dt);
-      draw();
-      requestAnimationFrame(gameLoop);
-    }
+function loop(ts){
+  if(!lastTime) lastTime = ts;
+  const dt = Math.min(0.05, (ts - lastTime)/1000); // clamp
+  lastTime = ts;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
 
-    document.addEventListener('keydown', e=>{
-      if(e.key==='ArrowUp') shieldPos='up';
-      if(e.key==='ArrowDown') shieldPos='down';
-      if(e.key==='ArrowLeft') shieldPos='left';
-      if(e.key==='ArrowRight') shieldPos='right';
-    });
+function resetGame(){
+  arrows = [];
+  waveCount = 0;
+  waveTimer = 0;
+  score = 0;
+  player.alive = true;
+  shield.angle = 0;
+  scoreUI.innerHTML = `Score: ${score}<br>High: ${highScore}`;
+}
 
-    overlay.addEventListener('click',()=>{
-      overlay.style.display='none';
-      resetGame();
-      music.play();
-      requestAnimationFrame(gameLoop);
-    });
-  </script>
+function gameOver(){
+  // show GAME OVER and reset shortly after
+  overlay.style.pointerEvents = 'auto';
+  overlay.innerHTML = `<div class="center-ui"><div id=\"gameover\">GAME OVER</div><div style=\"margin-top:12px;color:#ddd\">Score: ${score} &nbsp;&nbsp; High: ${highScore}</div></div>`;
+  // stop music
+  try{ music.pause(); music.currentTime = 0; } catch(e){}
+  setTimeout(()=>{
+    overlay.innerHTML = `<div class=\"center-ui\"><h1 style=\"margin:0 0 12px 0;color:#fff\">Undyne-style Shield Demo</h1><button id=\"startBtn\">Click to Start</button><div style=\"margin-top:10px;color:#ddd;font-size:13px\">Use arrow keys to rotate the shield around the SOUL</div></div>`;
+    // rebind start button
+    const sb = document.getElementById('startBtn');
+    if(sb) sb.addEventListener('click', startGame);
+    resetGame();
+  }, 1800);
+}
+
+function startGame(){
+  // start music (user gesture required)
+  music.play().catch(()=>{});
+  overlay.style.pointerEvents = 'none';
+  overlay.innerHTML = '';
+  running = true;
+  lastTime = 0;
+  waveTimer = 0;
+  baseSpeed = 200;
+  spawnWave();
+}
+
+startBtn.addEventListener('click', startGame);
+
+// start the RAF loop
+requestAnimationFrame(loop);
+
+</script>
 </body>
 </html>

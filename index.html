@@ -8,7 +8,6 @@
   :root{--bg:#000;--fg:#fff}
   html,body{height:100%;margin:0;background:#111;color:var(--fg);font-family:system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial}
   .wrap{display:flex;align-items:center;justify-content:center;height:100vh}
-  /* Game area */
   #game{background:#000;border:6px solid #fff;display:block}
   .ui{position:absolute;left:20px;top:20px;color:#fff;font-weight:700}
   .center-ui{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center}
@@ -24,153 +23,129 @@
     <canvas id="game" width="800" height="600"></canvas>
 
     <div class="ui" id="scoreUI">Score: 0<br>High: 0</div>
-    <div class="hud" id="hud"></div>
 
     <div id="overlay">
       <div class="center-ui">
         <h1 style="margin:0 0 12px 0;color:#fff">Undyne-style Shield Demo</h1>
         <button id="startBtn">Click to Start</button>
-        <div style="margin-top:10px;color:#ddd;font-size:13px">Use arrow keys to rotate the shield around the SOUL</div>
+        <div style="margin-top:10px;color:#ddd;font-size:13px">Use arrow keys to snap the shield around the SOUL</div>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-// Asset paths (as you requested)
 const ASSETS = {
-  soul: 'SOUL.png',      // SOUL graphic
-  shield: 'shield.png',  // shield graphic (vertical)
-  arrow: 'arrow.png',    // arrow graphic, facing up
-  music: 'music.mp3'     // music audio
+  soul: 'assets/SOUL.png',
+  shield: 'assets/shield.png',
+  arrow: 'assets/arrow.png',
+  music: 'assets/music.mp3'
 };
 
-// Canvas & context
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W = canvas.width, H = canvas.height;
 
-// UI
 const overlay = document.getElementById('overlay');
 const startBtn = document.getElementById('startBtn');
 const scoreUI = document.getElementById('scoreUI');
 
-// Images
 const imgSoul = new Image(); imgSoul.src = ASSETS.soul;
 const imgShield = new Image(); imgShield.src = ASSETS.shield;
 const imgArrow = new Image(); imgArrow.src = ASSETS.arrow;
 
-// Audio
 const music = new Audio(ASSETS.music);
-music.loop = true; // loop
+music.loop = true;
 
-// Game state
 let running = false;
-let arrows = []; // active arrows
+let arrows = [];
 let lastTime = 0;
 let waveTimer = 0;
-let waveInterval = 2000; // ms between waves
+let waveInterval = 1200;
 let waveCount = 0;
-let baseSpeed = 200; // px/s
-let speedIncrement = 25; // per wave
+let baseSpeed = 200;
+let speedIncrement = 25;
 let score = 0;
 let highScore = parseInt(localStorage.getItem('ud_high')||'0',10) || 0;
 scoreUI.innerHTML = `Score: ${score}<br>High: ${highScore}`;
 
-// Player (SOUL) in center
 const player = { x: W/2, y: H/2, r: 18, alive: true };
 
-// Shield properties (a vertical rectangle rotated around center)
 let shield = {
-  radius: 60,         // distance from center to shield center
-  width: 12,          // shield thickness
-  height: 90,         // shield length (vertical orientation before rotation)
-  angle: 0,           // radians
-  rotateSpeed: Math.PI, // radians per second when arrow pressed
+  radius: 60,
+  width: 12,
+  height: 90,
+  angle: 0,
 };
 
-// Controls
-const keys = { ArrowLeft:false, ArrowRight:false, ArrowUp:false, ArrowDown:false };
-window.addEventListener('keydown', e=>{ if(e.key in keys){ keys[e.key]=true; e.preventDefault(); }});
-window.addEventListener('keyup', e=>{ if(e.key in keys){ keys[e.key]=false; e.preventDefault(); }});
+// Snap shield positions (up,right,down,left)
+const snapAngles = {
+  ArrowUp: -Math.PI/2,
+  ArrowRight: 0,
+  ArrowDown: Math.PI/2,
+  ArrowLeft: Math.PI
+};
 
-// Utility
-function randInt(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
+window.addEventListener('keydown', e=>{
+  if(snapAngles[e.key]!==undefined){
+    shield.angle = snapAngles[e.key];
+    e.preventDefault();
+  }
+});
 
-// Arrow spawn: from one of four edges (left,right,top,bottom)
+function randChoice(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
 function spawnArrow(direction){
-  // direction: 'left','right','top','bottom' - spawn just outside the screen and move toward center
   let ax, ay, vx, vy;
-  const speed = baseSpeed + waveCount * speedIncrement; // px/s
+  const speed = baseSpeed + waveCount * speedIncrement;
   if(direction==='left'){
-    ax = -20; ay = randInt(50,H-50); vx = speed; vy = 0;
+    ax = 0; ay = H/2; vx = speed; vy = 0;
   } else if(direction==='right'){
-    ax = W+20; ay = randInt(50,H-50); vx = -speed; vy = 0;
+    ax = W; ay = H/2; vx = -speed; vy = 0;
   } else if(direction==='top'){
-    ax = randInt(50,W-50); ay = -20; vx = 0; vy = speed;
-  } else { // bottom
-    ax = randInt(50,W-50); ay = H+20; vx = 0; vy = -speed;
+    ax = W/2; ay = 0; vx = 0; vy = speed;
+  } else {
+    ax = W/2; ay = H; vx = 0; vy = -speed;
   }
   arrows.push({x:ax,y:ay,vx,vy,dir:direction});
 }
 
 function spawnWave(){
   waveCount++;
-  // spawn a random number of arrows 3..7 from random edges
-  const n = randInt(3,7);
-  for(let i=0;i<n;i++){
-    const dirs = ['left','right','top','bottom'];
-    const d = dirs[Math.floor(Math.random()*dirs.length)];
-    // small timeout between arrows in a wave
-    setTimeout(()=>spawnArrow(d), i*120);
+  const dirs = ['top','bottom','left','right'];
+  // Shuffle directions
+  for(let i=dirs.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [dirs[i],dirs[j]] = [dirs[j],dirs[i]];
   }
+  dirs.forEach((d,i)=>{
+    setTimeout(()=>spawnArrow(d), i*250);
+  });
 }
 
-// Rotate shield according to keys
-function updateShield(dt){
-  // left -> rotate CCW, right -> CW, up -> faster CW, down -> faster CCW
-  let turn = 0;
-  if(keys.ArrowLeft) turn -= 1;
-  if(keys.ArrowRight) turn += 1;
-  if(keys.ArrowUp) turn += 0.6;
-  if(keys.ArrowDown) turn -= 0.6;
-  shield.angle += turn * shield.rotateSpeed * dt;
-}
-
-// Collision: check if point (px,py) intersects the rotated rectangle shield
 function pointIntersectsShield(px,py){
-  // transform point into shield local coordinates
   const sx = player.x + Math.cos(shield.angle) * shield.radius;
   const sy = player.y + Math.sin(shield.angle) * shield.radius;
-  // rectangle center at (sx,sy) rotated by shield.angle; rectangle dims: width x height (width is thickness)
-  // move point relative to rect center
   const rx = px - sx;
   const ry = py - sy;
-  // rotate by -angle
   const ca = Math.cos(-shield.angle);
   const sa = Math.sin(-shield.angle);
   const lx = rx * ca - ry * sa;
   const ly = rx * sa + ry * ca;
-  // rectangle extents
-  const hw = shield.width/2 + 4; // small padding
+  const hw = shield.width/2 + 4;
   const hh = shield.height/2 + 4;
   return (lx >= -hw && lx <= hw && ly >= -hh && ly <= hh);
 }
 
 function update(dt){
   if(!running) return;
-  // shield
-  updateShield(dt);
 
-  // arrows move
   for(let i=arrows.length-1;i>=0;i--){
     const a = arrows[i];
     a.x += a.vx * dt;
     a.y += a.vy * dt;
 
-    // check collision with shield
     if(pointIntersectsShield(a.x,a.y)){
-      // blocked
       arrows.splice(i,1);
       score += 1;
       if(score>highScore){ highScore = score; localStorage.setItem('ud_high', highScore); }
@@ -178,32 +153,23 @@ function update(dt){
       continue;
     }
 
-    // check collision with player
     const dx = a.x - player.x;
     const dy = a.y - player.y;
-    const dist2 = dx*dx + dy*dy;
-    if(dist2 <= (player.r * player.r)){
-      // hit player -> game over
+    if(dx*dx + dy*dy <= player.r*player.r){
       player.alive = false;
       running = false;
       gameOver();
       return;
     }
-
-    // remove arrows far off-screen
-    if(a.x < -60 || a.x > W+60 || a.y < -60 || a.y > H+60){ arrows.splice(i,1); }
   }
 
-  // waves
   waveTimer += dt*1000;
   if(waveTimer >= waveInterval){ waveTimer = 0; spawnWave(); }
 }
 
 function draw(){
-  // background
   ctx.clearRect(0,0,W,H);
 
-  // draw SOUL (center)
   if(player.alive){
     if(imgSoul.complete && imgSoul.naturalWidth){
       const s = 48;
@@ -213,11 +179,8 @@ function draw(){
     }
   }
 
-  // draw shield (rectangle rotated)
-  // compute shield center
   const sx = player.x + Math.cos(shield.angle) * shield.radius;
   const sy = player.y + Math.sin(shield.angle) * shield.radius;
-
   ctx.save();
   ctx.translate(sx,sy);
   ctx.rotate(shield.angle);
@@ -228,29 +191,24 @@ function draw(){
   }
   ctx.restore();
 
-  // draw arrows
   for(const a of arrows){
     ctx.save();
     ctx.translate(a.x,a.y);
-    // compute rotation so arrow sprite (which faces up) points along velocity
-    const angle = Math.atan2(a.vy, a.vx) + Math.PI/2; // because sprite faces up
+    const angle = Math.atan2(a.vy, a.vx) + Math.PI/2;
     ctx.rotate(angle);
     if(imgArrow.complete && imgArrow.naturalWidth){
       const s = 28;
       ctx.drawImage(imgArrow, -s/2, -s/2, s, s);
     } else {
-      // fallback triangle
       ctx.fillStyle = '#ff0044'; ctx.beginPath(); ctx.moveTo(0,-12); ctx.lineTo(8,8); ctx.lineTo(-8,8); ctx.closePath(); ctx.fill();
     }
     ctx.restore();
   }
-
-  // HUD (if wanted we have Score in DOM already)
 }
 
 function loop(ts){
   if(!lastTime) lastTime = ts;
-  const dt = Math.min(0.05, (ts - lastTime)/1000); // clamp
+  const dt = Math.min(0.05, (ts - lastTime)/1000);
   lastTime = ts;
   update(dt);
   draw();
@@ -268,14 +226,11 @@ function resetGame(){
 }
 
 function gameOver(){
-  // show GAME OVER and reset shortly after
   overlay.style.pointerEvents = 'auto';
   overlay.innerHTML = `<div class="center-ui"><div id=\"gameover\">GAME OVER</div><div style=\"margin-top:12px;color:#ddd\">Score: ${score} &nbsp;&nbsp; High: ${highScore}</div></div>`;
-  // stop music
   try{ music.pause(); music.currentTime = 0; } catch(e){}
   setTimeout(()=>{
-    overlay.innerHTML = `<div class=\"center-ui\"><h1 style=\"margin:0 0 12px 0;color:#fff\">Undyne-style Shield Demo</h1><button id=\"startBtn\">Click to Start</button><div style=\"margin-top:10px;color:#ddd;font-size:13px\">Use arrow keys to rotate the shield around the SOUL</div></div>`;
-    // rebind start button
+    overlay.innerHTML = `<div class=\"center-ui\"><h1 style=\"margin:0 0 12px 0;color:#fff\">Undyne-style Shield Demo</h1><button id=\"startBtn\">Click to Start</button><div style=\"margin-top:10px;color:#ddd;font-size:13px\">Use arrow keys to snap the shield around the SOUL</div></div>`;
     const sb = document.getElementById('startBtn');
     if(sb) sb.addEventListener('click', startGame);
     resetGame();
@@ -283,7 +238,6 @@ function gameOver(){
 }
 
 function startGame(){
-  // start music (user gesture required)
   music.play().catch(()=>{});
   overlay.style.pointerEvents = 'none';
   overlay.innerHTML = '';
@@ -295,10 +249,7 @@ function startGame(){
 }
 
 startBtn.addEventListener('click', startGame);
-
-// start the RAF loop
 requestAnimationFrame(loop);
-
 </script>
 </body>
 </html>

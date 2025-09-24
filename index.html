@@ -78,7 +78,7 @@ let shield = {
   radius: 60,
   width: 12,
   height: 90,
-  angle: 0,
+  angle: 180,
 };
 
 // shield snap controls
@@ -107,7 +107,7 @@ function spawnArrow(direction){
 function spawnWave(){
   waveCount++;
   arrowsThisWave = 0;
-  baseSpeed = 200 + (waveCount-1)*25;
+  baseSpeed = 200 + (waveCount-1)*100;
   hud.textContent = `Wave: ${waveCount}`;
 }
 

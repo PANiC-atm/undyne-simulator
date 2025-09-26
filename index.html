@@ -13,9 +13,10 @@
   .ui{position:absolute;left:20px;top:20px;color:#fff;font-weight:700}
   .center-ui{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center}
   #overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:auto}
-  button{background:#fff;color:#000;border:none;padding:12px 18px;border-radius:8px;font-weight:700;cursor:pointer}
+  button{background:#fff;color:#000;border:none;padding:8px 12px;border-radius:8px;font-weight:700;cursor:pointer}
   #gameover{font-size:64px;letter-spacing:4px}
   #hud{position:absolute;right:20px;top:20px;color:#fff;font-weight:700;text-align:right}
+  #resetBtn{margin-top:8px;font-size:13px;padding:6px 10px;}
 </style>
 </head>
 <body>
@@ -23,14 +24,18 @@
   <div style="position:relative;">
     <canvas id="game" width="800" height="600"></canvas>
 
-    <div class="ui" id="scoreUI">Score: 0<br>High: 0</div>
+    <div class="ui" id="scoreUI">Score: 0<br>High: 0<br>
+      <button id="resetBtn">Reset Score</button>
+    </div>
     <div class="hud" id="hud"></div>
 
     <div id="overlay">
       <div class="center-ui">
         <h1 style="margin:0 0 12px 0;color:#fff">Undyne-style Shield Demo</h1>
         <button id="startBtn">Click to Start</button>
-        <div style="margin-top:10px;color:#ddd;font-size:13px">Use arrow keys to rotate the shield around the SOUL</div>
+        <div style="margin-top:10px;color:#ddd;font-size:13px">
+          Use arrow keys or WASD to rotate the shield around the SOUL
+        </div>
       </div>
     </div>
   </div>
@@ -50,6 +55,7 @@ const W = canvas.width, H = canvas.height;
 
 const overlay = document.getElementById('overlay');
 const startBtn = document.getElementById('startBtn');
+const resetBtn = document.getElementById('resetBtn');
 const scoreUI = document.getElementById('scoreUI');
 const hud = document.getElementById('hud');
 
@@ -70,7 +76,7 @@ let arrowInterval = 1000; // one arrow per second
 let baseSpeed = 200;
 let score = 0;
 let highScore = parseInt(localStorage.getItem('ud_high')||'0',10) || 0;
-scoreUI.innerHTML = `Score: ${score}<br>High: ${highScore}`;
+scoreUI.innerHTML = `Score: ${score}<br>High: ${highScore}<br><button id="resetBtn">Reset Score</button>`;
 
 const player = { x: W/2, y: H/2, r: 18, alive: true };
 
@@ -81,12 +87,22 @@ let shield = {
   angle: 0,
 };
 
-// shield snap controls
+// shield snap controls (Arrow Keys + WASD)
 window.addEventListener('keydown', e=>{
-  if(e.key==="ArrowUp") shield.angle = -Math.PI/2;
-  if(e.key==="ArrowDown") shield.angle = Math.PI/2;
-  if(e.key==="ArrowLeft") shield.angle = Math.PI;
-  if(e.key==="ArrowRight") shield.angle = 0;
+  if(e.key==="ArrowUp" || e.key==="w" || e.key==="W") shield.angle = -Math.PI/2;
+  if(e.key==="ArrowDown" || e.key==="s" || e.key==="S") shield.angle = Math.PI/2;
+  if(e.key==="ArrowLeft" || e.key==="a" || e.key==="A") shield.angle = Math.PI;
+  if(e.key==="ArrowRight" || e.key==="d" || e.key==="D") shield.angle = 0;
+});
+
+// reset score button
+document.addEventListener("click", e=>{
+  if(e.target && e.target.id === "resetBtn"){
+    score = 0;
+    highScore = 0;
+    localStorage.removeItem('ud_high');
+    scoreUI.innerHTML = `Score: ${score}<br>High: ${highScore}<br><button id="resetBtn">Reset Score</button>`;
+  }
 });
 
 function spawnArrow(direction){
@@ -124,7 +140,7 @@ function update(dt){
       arrows.splice(i,1);
       score += 1;
       if(score>highScore){ highScore = score; localStorage.setItem('ud_high', highScore); }
-      scoreUI.innerHTML = `Score: ${score}<br>High: ${highScore}`;
+      scoreUI.innerHTML = `Score: ${score}<br>High: ${highScore}<br><button id="resetBtn">Reset Score</button>`;
       continue;
     }
 
@@ -225,7 +241,7 @@ function resetGame(){
   score = 0;
   player.alive = true;
   shield.angle = 0;
-  scoreUI.innerHTML = `Score: ${score}<br>High: ${highScore}`;
+  scoreUI.innerHTML = `Score: ${score}<br>High: ${highScore}<br><button id="resetBtn">Reset Score</button>`;
   hud.textContent = '';
 }
 
@@ -234,7 +250,7 @@ function gameOver(){
   overlay.innerHTML = `<div class="center-ui"><div id="gameover">GAME OVER</div><div style="margin-top:12px;color:#ddd">Score: ${score} &nbsp;&nbsp; High: ${highScore}</div></div>`;
   try{ music.pause(); music.currentTime = 0; } catch(e){}
   setTimeout(()=>{
-    overlay.innerHTML = `<div class="center-ui"><h1 style="margin:0 0 12px 0;color:#fff">Undyne-style Shield Demo</h1><button id="startBtn">Click to Start</button><div style="margin-top:10px;color:#ddd;font-size:13px">Use arrow keys to rotate the shield around the SOUL</div></div>`;
+    overlay.innerHTML = `<div class="center-ui"><h1 style="margin:0 0 12px 0;color:#fff">Undyne-style Shield Demo</h1><button id="startBtn">Click to Start</button><div style="margin-top:10px;color:#ddd;font-size:13px">Use arrow keys or WASD to rotate the shield around the SOUL</div></div>`;
     const sb = document.getElementById('startBtn');
     if(sb) sb.addEventListener('click', startGame);
     resetGame();
